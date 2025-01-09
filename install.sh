@@ -12,13 +12,16 @@ read APACHE_PORT
 echo "Please enter custom SSH port:"
 read SSH_PORT
 
-NGINX_CONF="./kalinuxv1/kalinuxsec/kalinux_security/static/public/download/tools/nginx/nginx.conf"
-APACHE_CONF="./kalinuxv1/kalinuxsec/kalinux_security/static/public/download/tools/apache2/sites-available/kalidev.conf"
+sudo apt update && sudo apt install -y zip
 
-sed -i "s|<DOMAIN_NAME>|$DOMAIN_NAME|g" $NGINX_CONF
-sed -i "s|<SERVER_IP>|$SERVER_IP|g" $NGINX_CONF
-sed -i "s|<DOMAIN_NAME>|$DOMAIN_NAME|g" $APACHE_CONF
-sed -i "s|<SERVER_IP>|$SERVER_IP|g" $APACHE_CONF
+echo "Unpacking kalinuxsec.zip..."
+unzip -o kalinuxsec.zip -d ./kalinuxsec
+
+echo "Configuring settings..."
+find ./kalinuxsec/configs -type f -exec sed -i "s/{{SERVER_DOMAIN}}/${SERVER_DOMAIN}/g" {} \;
+find ./kalinuxsec/configs -type f -exec sed -i "s/{{SERVER_IP}}/${SERVER_IP}/g" {} \;
+find ./kalinuxsec/configs -type f -exec sed -i "s/{{WEBSERVER_PORT}}/${WEBSERVER_PORT}/g" {} \;
+find ./kalinuxsec/configs -type f -exec sed -i "s/{{SSH_PORT}}/${SSH_PORT}/g" {} \;
 
 # Step 3: Update system and install dependencies
 echo "Updating system and installing dependencies..."
@@ -58,9 +61,15 @@ sudo chmod +x /usr/local/bin/docker-compose
 docker --version
 docker-compose --version
 
-# Step 5: Build and start Docker containers
-echo "Building and starting Docker containers..."
-sudo docker-compose up --build -d
+# Create Docker networks if they don't exist
+echo "Creating Docker networks..."
+docker network create frontend || true
+docker network create backend || true
+
+# Navigate to the directory and start services
+echo "Starting services with Docker Compose..."
+cd ./kalinuxsec
+docker-compose up --build -d
 
 # Step 6: Configure Nginx and Apache
 echo "Setting up Nginx and Apache configurations..."
@@ -75,14 +84,14 @@ sudo systemctl restart apache2
 
 # Step 7: Set up Gunicorn service
 echo "Setting up Gunicorn service..."
-sudo cp ./kalinuxv1/tools/flaskapp.service /etc/systemd/system/flaskapp.service
+sudo cp ./kalinuxsec/configs/flaskapp.service /etc/systemd/system/flaskapp.service
 sudo systemctl daemon-reload
-sudo systemctl enable flaskapp.service
+#sudo systemctl enable flaskapp.service
 sudo systemctl start flaskapp.service
 
 # Step 8: Enable Fail2Ban
 echo "Configuring Fail2Ban..."
-sudo cp ./kalinuxv1/kalinuxsec/kalinux_security/static/public/download/tools/fail2ban/jail.local /etc/fail2ban/jail.local
+sudo cp ./kalinuxsec/configs/fail2ban/jail.local /etc/fail2ban/jail.local
 sudo systemctl restart fail2ban
 
 # Step 9: Finalize installation
