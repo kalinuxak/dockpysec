@@ -1,0 +1,66 @@
+server {
+
+	server_name SERVER_DOMAIN www.SERVER_DOMAIN;
+	
+	location / {
+	include proxy_params;
+        proxy_pass http://127.0.1.1:8080;
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        add_header Cache-Control "public, immutable";
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Permissions-Policy "geolocation=(), microphone=(), camera=()";
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+        add_header Referrer-Policy "no-referrer";
+
+	}
+
+	location /static/ {
+		alias /var/www/kalinuxsec/flaskapp/static/;
+	}
+
+        location ~ /\.(ht|git|env) {
+                deny all;
+        }
+
+        location ~* \.(php|pl|py|sh)$ {
+            deny all;
+        }
+
+        location ~ /\.ht {
+            deny all;
+        }
+
+        try_files $uri $uri/ =404;
+
+
+
+        location /secure/ {
+            auth_basic "Restricted Area";
+            auth_basic_user_file /etc/nginx/.htpasswd;
+            alias /var/www/kalinuxsec/flaskapp/templates/secure/;
+        }
+
+# HERE should be ssl configured if it needs. usually using lets encrypt certs, managed by cerbot. double check it if it looks like
+#       listen 443 ssl;
+#       routes for parts of cert and nginx specific params
+#
+# kinda useless if nginx perfoms not default actions, or if in some reason you prefer let apache serve frontend (read with user interactions). you should deploy certs to apache then and enable # 
+#it with a2enmod ssl
+
+# required ssl certs enabled and deployed. route your visitors through https forcely, or through specific subdomain
+
+server {
+    if ($host = www.SERVER_DOMAIN) {
+        return 301 https://$host$request_uri;
+    }
+
+    if ($host = SERVER_NAME) {
+        return 301 https://$host$request_uri;
+    }
+
+        listen 80;
+	server_name SERVER_DOMAIN www.SERVER_DOMAIN;
+    return 404;
+
+}

@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  flaskapp:
+    build: .
+    container_name: flaskapp
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./kalinuxv1:/app
+    depends_on:
+      - redis
+    networks:
+      - app_network
+
+  redis:
+    image: redis:latest
+    container_name: redis
+    ports:
+      - "6379:6379"
+    networks:
+      - app_network
+
+  nginx:
+    image: nginx:latest
+    container_name: nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./kalinuxv1/tools/nginx:/etc/nginx/conf.d
+    depends_on:
+      - flaskapp
+    networks:
+      - app_network
+
+  apache2:
+    image: httpd:latest
+    container_name: apache2
+    volumes:
+      - ./kalinuxv1/tools/apache2:/usr/local/apache2/conf
+    depends_on:
+      - flaskapp
+    networks:
+      - app_network
+
+  fail2ban:
+    image: falcosecurity/falco-no-driver:latest
+    container_name: fail2ban
+    volumes:
+      - ./kalinuxv1/tools/fail2ban:/etc/fail2ban
+    networks:
+      - app_network
+
+  ssh:
+    image: rastasheep/ubuntu-sshd:latest
+    container_name: ssh
+    ports:
+      - "2222:22"
+    volumes:
+      - ./kalinuxv1/tools/ssh:/root/.ssh
+    networks:
+      - app_network
+
+networks:
+  app_network:
+    driver: bridge
