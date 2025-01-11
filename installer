@@ -1,0 +1,113 @@
+#!/bin/bash
+
+set -e
+
+# Step 1: Request necessary inputs
+echo "Please enter your domain name (e.g., example.com):"
+read DOMAIN_NAME
+echo "Please enter your server IP address (e.g., 192.168.1.1):"
+read SERVER_IP
+echo "Please enter custom Apache port [default: 8080]:"
+read APACHE_PORT
+APACHE_PORT=${APACHE_PORT:-8080}
+echo "Please enter custom SSH port [default: 2222]:"
+read SSH_PORT
+SSH_PORT=${SSH_PORT:-2222}
+
+# Define paths and variables
+INSTALL_DIR=./kalinuxsec
+ZIP_FILE=kalinuxsec.zip
+NGINX_CONF="$INSTALL_DIR/configs/nginx/kalidev.conf"
+APACHE_CONF="$INSTALL_DIR/configs/apache2/kalidev.conf"
+
+# Step 2: Install system updates and unzip files
+echo "Updating system and installing basic tools..."
+sudo apt update && sudo apt install -y zip unzip curl git software-properties-common gnupg2
+echo "Unpacking ${ZIP_FILE}..."
+unzip -o ${ZIP_FILE} -d ${INSTALL_DIR}
+
+echo "Configuring settings..."
+find ${INSTALL_DIR}/configs -type f -exec sed -i "s/{{SERVER_DOMAIN}}/${DOMAIN_NAME}/g" {} \;
+find ${INSTALL_DIR}/configs -type f -exec sed -i "s/{{SERVER_IP}}/${SERVER_IP}/g" {} \;
+find ${INSTALL_DIR}/configs -type f -exec sed -i "s/{{WEBSERVER_PORT}}/${APACHE_PORT}/g" {} \;
+find ${INSTALL_DIR}/configs -type f -exec sed -i "s/{{SSH_PORT}}/${SSH_PORT}/g" {} \;
+
+# Step 3: Install system dependencies
+echo "Installing additional system dependencies..."
+sudo apt-get install -y \
+  apt-transport-https \
+  ca-certificates \
+  clamav \
+  chkrootkit \
+  rkhunter \
+  lynis \
+  iptables \
+  ipset \
+  fail2ban \
+  nginx \
+  apache2 \
+  python3 \
+  python3-pip \
+  python3-venv \
+  certbot \
+  python3-certbot-nginx \
+  prometheus-node-exporter \
+  grafana \
+  redis \
+  memcached
+
+# Step 4: Install Docker and Docker Compose
+echo "Installing Docker and Docker Compose..."
+curl -fsSL https://download.docker.com/linux/debian/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+echo "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt-get update && sudo apt-get install -y docker-ce docker-ce-cli containerd.io
+sudo curl -L "https://github.com/docker/compose/releases/download/$(curl -s https://api.github.com/repos/docker/compose/releases/latest | grep 'tag_name' | cut -d '"' -f 4)/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
+
+docker --version
+docker-compose --version
+
+# Step 5: Create Docker networks
+echo "Creating Docker networks..."
+docker network create frontend || true
+docker network create backend || true
+
+# Step 6: Deploy with Docker Compose
+echo "Deploying services with Docker Compose..."
+cd ${INSTALL_DIR}
+docker-compose up --build -d
+
+# Step 7: Configure Nginx and Apache
+echo "Configuring Nginx and Apache..."
+openssl dhparam -out /etc/ssl/nginx-dhparam.pem 2048
+
+sudo cp ${NGINX_CONF} /etc/nginx/conf.d/kalidev.conf
+sudo systemctl restart nginx
+
+sudo cp ${APACHE_CONF} /etc/apache2/sites-available/kalidev.conf
+sudo ln -sf /etc/apache2/sites-available/kalidev.conf /etc/apache2/sites-enabled/
+sudo systemctl restart apache2
+
+# Step 8: Set up Gunicorn service
+echo "Configuring Gunicorn service..."
+sudo cp ${INSTALL_DIR}/configs/flaskapp.service /etc/systemd/system/flaskapp.service
+sudo systemctl daemon-reload
+sudo systemctl enable flaskapp.service
+sudo systemctl start flaskapp.service
+
+# Step 9: Enable Fail2Ban and Firewall
+echo "Configuring Fail2Ban and Firewall..."
+sudo cp ${INSTALL_DIR}/configs/fail2ban/jail.local /etc/fail2ban/jail.local
+sudo systemctl restart fail2ban
+
+sudo ufw allow ${APACHE_PORT}/tcp
+sudo ufw allow ${SSH_PORT}/tcp
+sudo ufw enable
+
+# Step 10: Clean up
+echo "Cleaning up temporary files..."
+rm -f ${ZIP_FILE}
+
+# Step 11: Output success message
+echo "Deployment completed successfully!"
+echo "Access your application at https://${DOMAIN_NAME} or http://${SERVER_IP}:${APACHE_PORT}"
